@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     base_command_ocr: str = "/usr/local/bin/ocrmypdf"
     api_key_secret: str = "changeme"
     base_command_option: str = "--output-type pdf --fast-web-view 0 --optimize 0"
+    max_ocr_process: int = 1
 
 
 config = Settings()

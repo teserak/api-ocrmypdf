@@ -5,6 +5,7 @@ import subprocess
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
+from threading import BoundedSemaphore
 from typing import Optional, List
 from uuid import UUID
 
@@ -35,11 +36,13 @@ logger = logging.getLogger("gunicorn.error")
 app = FastAPI(
     title="Fast ocrmypdf",
     description="Basic API for ocrmypdf",
-    version="0.0.1",
+    version="0.1.0",
     redoc_url=None,
 )
 Schedule = AsyncIOScheduler({"apscheduler.timezone": "UTC"})
 Schedule.start()
+
+pool_ocr = BoundedSemaphore(value=config.max_ocr_process)
 
 documents = {}
 workdir = config.workdir
@@ -61,7 +64,53 @@ def clean_docs():
             d.delete_all_files()
 
 
-def load_current_docs():
+def do_ocr(_doc: Document):
+    pool_ocr.acquire()
+    documents[_doc.pid].update({"status": "processing", "processing": datetime.now()})
+    try:
+        output = subprocess.check_output(
+            " ".join(
+                [
+                    config.base_command_ocr,
+                    config.base_command_option,
+                    f"-l {'+'.join([l.value for l in _doc.lang])}",
+                    f"--sidecar {_doc.output_txt.resolve().relative_to(script_directory).as_posix()}",
+                    _doc.input.resolve().relative_to(script_directory).as_posix(),
+                    _doc.output.resolve().relative_to(script_directory).as_posix(),
+                ]
+            ),
+            stderr=subprocess.STDOUT,
+            shell=True,
+        )
+    except subprocess.CalledProcessError as e:
+        documents[_doc.pid].update(
+            {
+                "status": "error",
+                "code": e.returncode,
+                "result": e.output.strip(),
+                "finished": datetime.now(),
+            }
+        )
+    else:
+        documents[_doc.pid].update(
+            {
+                "status": "done",
+                "code": 0,
+                "result": output.strip(),
+                "finished": datetime.now(),
+            }
+        )
+        with open(_doc.output_json, "w") as ff:
+            ff.write(Document.parse_obj(documents[_doc.pid]).json())
+    finally:
+        pool_ocr.release()
+
+
+api_key_header = APIKeyHeader(name="X-API-KEY")
+
+
+@app.on_event("startup")
+async def startup_event():
     now = datetime.now()
     for f_json in (script_directory / workdir).glob("o_*_*.json"):
         try:
@@ -77,54 +126,7 @@ def load_current_docs():
                     logger.info(f"Deleting expired document {d.pid}")
                     d.delete_all_files()
 
-
-load_current_docs()
-
-cleaning_docs_task = Schedule.add_job(
-    clean_docs, "interval", minutes=1, id="cleaning_docs_task"
-)
-
-
-def do_ocr(doc: Document):
-    documents[doc.pid].update({"status": "processing", "processing": datetime.now()})
-    try:
-        output = subprocess.check_output(
-            " ".join(
-                [
-                    config.base_command_ocr,
-                    config.base_command_option,
-                    f"-l {'+'.join([l.value for l in doc.lang])}",
-                    f"--sidecar {doc.output_txt.resolve().relative_to(script_directory).as_posix()}",
-                    doc.input.resolve().relative_to(script_directory).as_posix(),
-                    doc.output.resolve().relative_to(script_directory).as_posix(),
-                ]
-            ),
-            stderr=subprocess.STDOUT,
-            shell=True,
-        )
-    except subprocess.CalledProcessError as e:
-        documents[doc.pid].update(
-            {
-                "status": "error",
-                "code": e.returncode,
-                "result": e.output.strip(),
-                "finished": datetime.now(),
-            }
-        )
-    else:
-        documents[doc.pid].update(
-            {
-                "status": "done",
-                "code": 0,
-                "result": output.strip(),
-                "finished": datetime.now(),
-            }
-        )
-        with open(doc.output_json, "w") as ff:
-            ff.write(Document.parse_obj(documents[doc.pid]).json())
-
-
-api_key_header = APIKeyHeader(name="X-API-KEY")
+    Schedule.add_job(clean_docs, "interval", minutes=1, id="cleaning_docs_task")
 
 
 async def check_api_key(x_api_key: str = Security(api_key_header)):
@@ -190,10 +192,10 @@ def get_doc_output(pid: UUID, api_key: APIKey = Depends(check_api_key)):
     "/ocr", response_model=Document, status_code=202,
 )
 async def ocr(
-    background_tasks: BackgroundTasks,
-    lang: Optional[List[str]] = Query([Lang.eng]),
-    file: UploadFile = File(...),
-    api_key: APIKey = Depends(check_api_key),
+        background_tasks: BackgroundTasks,
+        lang: Optional[List[str]] = Query([Lang.eng]),
+        file: UploadFile = File(...),
+        api_key: APIKey = Depends(check_api_key),
 ):
     pid = uuid.uuid4()
     now = datetime.now()

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from threading import BoundedSemaphore
-from typing import Optional, List
+from typing import Optional, List, Dict
 from uuid import UUID
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -36,7 +36,7 @@ logger = logging.getLogger("gunicorn.error")
 app = FastAPI(
     title="Fast ocrmypdf",
     description="Basic API for ocrmypdf",
-    version="0.1.0",
+    version="0.1.1",
     redoc_url=None,
 )
 Schedule = AsyncIOScheduler({"apscheduler.timezone": "UTC"})
@@ -44,11 +44,11 @@ Schedule.start()
 
 pool_ocr = BoundedSemaphore(value=config.max_ocr_process)
 
-documents = {}
+documents: Dict[UUID, Document] = {}
 workdir = config.workdir
 
 script_directory = Path(os.path.dirname(os.path.abspath(__file__))).resolve()
-expiration_delta = timedelta(hours=1)
+expiration_delta = timedelta(hours=config.document_expire_hour)
 
 if not workdir.exists():
     workdir.mkdir()
@@ -66,44 +66,8 @@ def clean_docs():
 
 def do_ocr(_doc: Document):
     pool_ocr.acquire()
-    documents[_doc.pid].update({"status": "processing", "processing": datetime.now()})
-    try:
-        output = subprocess.check_output(
-            " ".join(
-                [
-                    config.base_command_ocr,
-                    config.base_command_option,
-                    f"-l {'+'.join([l.value for l in _doc.lang])}",
-                    f"--sidecar {_doc.output_txt.resolve().relative_to(script_directory).as_posix()}",
-                    _doc.input.resolve().relative_to(script_directory).as_posix(),
-                    _doc.output.resolve().relative_to(script_directory).as_posix(),
-                ]
-            ),
-            stderr=subprocess.STDOUT,
-            shell=True,
-        )
-    except subprocess.CalledProcessError as e:
-        documents[_doc.pid].update(
-            {
-                "status": "error",
-                "code": e.returncode,
-                "result": e.output.strip(),
-                "finished": datetime.now(),
-            }
-        )
-    else:
-        documents[_doc.pid].update(
-            {
-                "status": "done",
-                "code": 0,
-                "result": output.strip(),
-                "finished": datetime.now(),
-            }
-        )
-        with open(_doc.output_json, "w") as ff:
-            ff.write(Document.parse_obj(documents[_doc.pid]).json())
-    finally:
-        pool_ocr.release()
+    _doc.ocr()
+    pool_ocr.release()
 
 
 api_key_header = APIKeyHeader(name="X-API-KEY")
@@ -120,13 +84,15 @@ async def startup_event():
         else:
             if d.pid not in documents:
                 if d.expire > now and d.output.exists():
-                    documents[d.pid] = d.dict()
+                    documents[d.pid] = d
                     logger.info(f"Loaded existing document {d.pid}")
                 else:
                     logger.info(f"Deleting expired document {d.pid}")
                     d.delete_all_files()
 
-    Schedule.add_job(clean_docs, "interval", minutes=1, id="cleaning_docs_task")
+    Schedule.add_job(
+        clean_docs, "interval", minutes=1, id="cleaning_docs_task", coalesce=True
+    )
 
 
 async def check_api_key(x_api_key: str = Security(api_key_header)):
@@ -161,7 +127,7 @@ def doc(pid: UUID, api_key: APIKey = Depends(check_api_key)):
 @app.get("/ocr/{pid}/pdf")
 def get_doc_output(pid: UUID, api_key: APIKey = Depends(check_api_key)):
     if pid in documents:
-        output_doc = Path(documents[pid]["output"])
+        output_doc = documents[pid].output
 
         if output_doc.resolve().exists():
             return FileResponse(
@@ -176,7 +142,7 @@ def get_doc_output(pid: UUID, api_key: APIKey = Depends(check_api_key)):
 @app.get("/ocr/{pid}/txt")
 def get_doc_output(pid: UUID, api_key: APIKey = Depends(check_api_key)):
     if pid in documents:
-        output_doc_txt = Path(documents[pid]["output_txt"])
+        output_doc_txt = documents[pid].output_txt
 
         if output_doc_txt.resolve().exists():
             return FileResponse(
@@ -192,32 +158,35 @@ def get_doc_output(pid: UUID, api_key: APIKey = Depends(check_api_key)):
     "/ocr", response_model=Document, status_code=202,
 )
 async def ocr(
-        background_tasks: BackgroundTasks,
-        lang: Optional[List[str]] = Query([Lang.eng]),
-        file: UploadFile = File(...),
-        api_key: APIKey = Depends(check_api_key),
+    background_tasks: BackgroundTasks,
+    lang: Optional[List[str]] = Query([Lang.eng]),
+    file: UploadFile = File(...),
+    api_key: APIKey = Depends(check_api_key),
 ):
     pid = uuid.uuid4()
     now = datetime.now()
     expire = now + expiration_delta
+    filename = f"{pid}_{int(expire.timestamp())}"
 
-    input_file = workdir / PurePosixPath(f"i_{pid}_{int(expire.timestamp())}.pdf")
+    input_file = workdir / PurePosixPath(f"i_{filename}.pdf")
     save_upload_file(file, input_file)
-    output_file = workdir / Path(f"o_{pid}_{int(expire.timestamp())}.pdf")
-    output_file_json = workdir / Path(f"o_{pid}_{int(expire.timestamp())}.json")
-    output_file_txt = workdir / Path(f"o_{pid}_{int(expire.timestamp())}.txt")
-    documents[pid] = {
-        "pid": pid,
-        "lang": lang,
-        "input": input_file,
-        "output": output_file,
-        "output_json": output_file_json,
-        "output_txt": output_file_txt,
-        "status": "received",
-        "created": now,
-        "expire": expire,
-    }
+    output_file = workdir / Path(f"o_{filename}.pdf")
+    output_file_json = workdir / Path(f"o_{filename}.json")
+    output_file_txt = workdir / Path(f"o_{filename}.txt")
+    documents[pid] = Document.parse_obj(
+        {
+            "pid": pid,
+            "lang": lang,
+            "input": input_file,
+            "output": output_file,
+            "output_json": output_file_json,
+            "output_txt": output_file_txt,
+            "status": "received",
+            "created": now,
+            "expire": expire,
+        }
+    )
 
-    background_tasks.add_task(do_ocr, Document.parse_obj(documents[pid]))
+    background_tasks.add_task(do_ocr, documents[pid])
 
     return documents[pid]

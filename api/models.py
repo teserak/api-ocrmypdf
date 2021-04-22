@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from settings import config
+from api.settings import config
 
 
 class Lang(str, Enum):
@@ -46,7 +46,7 @@ class Document(BaseModel):
     def ocr(self):
         self.status = "processing"
         self.processing = datetime.now()
-        self._save_state()
+        self.save_state()
         try:
             output = subprocess.check_output(
                 " ".join(
@@ -73,9 +73,9 @@ class Document(BaseModel):
             self.result = str(output).strip()
             self.finished = datetime.now()
         finally:
-            self._save_state()
+            self.save_state()
 
-    def _save_state(self):
+    def save_state(self):
         with open(self.output_json, "w") as ff:
             ff.write(self.json())
 

@@ -1,4 +1,5 @@
 .idea
-workdir/
+api/workdir
+workdir
 *.pdf
 *.key

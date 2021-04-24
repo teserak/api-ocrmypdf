@@ -30,10 +30,29 @@ pip install -r requirements_dev.txt
 uvicorn main:app --reload
 ```
 
+### On Windows
+
+Development on Windows (excluding OCRmyPDF itself) is possible if you use WSL, a compatible Linux distro such as
+Ubuntu (available on the Windows Store) and install OCRmyPDF inside WSL. You will need to set some settings for
+api-ocrmypdf to make it work.
+
+Environment variables to set before starting server
+
+ * `BASE_COMMAND_OCR = wsl [path to ocrmypdf bin inside WSL]`
+ * `WORKDIR = [absolute directory to the work directory]`
+ * `ENABLE_WSL_COMPAT = 1`
+
+##### Example
+```shell
+BASE_COMMAND_OCR=wsl /home/mywinuser/.local/bin/ocrmypdf
+WORKDIR=C:\dev\api-ocrmypdf\workdir;
+ENABLE_WSL_COMPAT=1
+```
+
 ## Tests
 
 ```shell
-cd tests && pytest
+python -m pytest
 ```
 
 ## License

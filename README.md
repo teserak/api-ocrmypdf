@@ -10,9 +10,15 @@ management system.
 
 **Fair warning: this is work in progress project.**
 
-## Usage
+## Usage (Docker)
 
-Latest master image available here: `registry.gitlab.com/exotic-matter/api-ocrmypdf:master`
+https://hub.docker.com/r/exoticmatter/api-ocrmypdf
+
+```shell
+docker run -p "8000:8000" exoticmatter/api-ocrmypdf
+```
+
+then open your browser to http://127.0.0.1:8000/docs
 
 ## Settings
 
@@ -21,9 +27,8 @@ apply upper case to the name of the setting.
 
 ## Development
 
- * Python 3.7+
- * OCRmyPDF 12.+ Refer to [OCRmyPDF docs](https://ocrmypdf.readthedocs.io) for
-instructions.
+* Python 3.7+
+* OCRmyPDF 12.+ Refer to [OCRmyPDF docs](https://ocrmypdf.readthedocs.io) for instructions.
 
 ```shell
 pip install -r requirements.txt
@@ -39,11 +44,12 @@ api-ocrmypdf to make it work.
 
 Environment variables to set before starting server
 
- * `BASE_COMMAND_OCR = wsl [path to ocrmypdf bin inside WSL]`
- * `WORKDIR = [absolute directory to the work directory]`
- * `ENABLE_WSL_COMPAT = 1`
+* `BASE_COMMAND_OCR = wsl [path to ocrmypdf bin inside WSL]`
+* `WORKDIR = [absolute directory to the work directory]`
+* `ENABLE_WSL_COMPAT = 1`
 
 ##### Example
+
 ```shell
 BASE_COMMAND_OCR=wsl /home/mywinuser/.local/bin/ocrmypdf
 WORKDIR=C:\dev\api-ocrmypdf\workdir;

@@ -96,12 +96,15 @@ async def startup_event():
 
 
 async def check_api_key(x_api_key: str = Security(api_key_header)):
-    if secrets.compare_digest(x_api_key, config.api_key_secret):
-        return api_key_header
+    if config.api_key_secret:
+        if secrets.compare_digest(x_api_key, config.api_key_secret):
+            return api_key_header
+        else:
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN, detail="Could not validate credentials"
+            )
     else:
-        raise HTTPException(
-            status_code=HTTP_403_FORBIDDEN, detail="Could not validate credentials"
-        )
+        return ''
 
 
 @app.get("/", include_in_schema=False, status_code=204, response_class=Response)

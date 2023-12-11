@@ -70,9 +70,6 @@ def do_ocr(_doc: Document):
     pool_ocr.release()
 
 
-api_key_header = APIKeyHeader(name="X-API-KEY")
-
-
 @app.on_event("startup")
 async def startup_event():
     now = datetime.now()
@@ -95,18 +92,6 @@ async def startup_event():
     )
 
 
-async def check_api_key(x_api_key: str = Security(api_key_header)):
-    if config.api_key_secret:
-        if secrets.compare_digest(x_api_key, config.api_key_secret):
-            return api_key_header
-        else:
-            raise HTTPException(
-                status_code=HTTP_403_FORBIDDEN, detail="Could not validate credentials"
-            )
-    else:
-        return ''
-
-
 @app.get("/", include_in_schema=False, status_code=204, response_class=Response)
 def root():
     pass
@@ -121,14 +106,14 @@ def status():
 
 
 @app.get("/ocr/{pid}", response_model=Document)
-def get_doc_detail(pid: UUID, api_key: APIKey = Depends(check_api_key)):
+def get_doc_detail(pid: UUID):
     if pid in documents:
         return documents[pid]
     raise HTTPException(status_code=404)
 
 
 @app.get("/ocr/{pid}/pdf")
-def get_doc_pdf(pid: UUID, api_key: APIKey = Depends(check_api_key)):
+def get_doc_pdf(pid: UUID):
     if pid in documents:
         output_doc = documents[pid].output
 
@@ -143,7 +128,7 @@ def get_doc_pdf(pid: UUID, api_key: APIKey = Depends(check_api_key)):
 
 
 @app.get("/ocr/{pid}/txt")
-def get_doc_txt(pid: UUID, api_key: APIKey = Depends(check_api_key)):
+def get_doc_txt(pid: UUID):
     if pid in documents:
         output_doc_txt = documents[pid].output_txt
 
@@ -162,9 +147,8 @@ def get_doc_txt(pid: UUID, api_key: APIKey = Depends(check_api_key)):
 )
 async def ocr(
     background_tasks: BackgroundTasks,
-    lang: Optional[Set[str]] = Query([Lang.eng]),
+    lang: Optional[Set[str]] = Query([Lang.pol]),
     file: UploadFile = File(...),
-    api_key: APIKey = Depends(check_api_key),
 ):
     pid = uuid.uuid4()
     now = datetime.now()

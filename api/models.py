@@ -13,20 +13,7 @@ from api.tools import special_win_wslpath
 
 class Lang(str, Enum):
     eng = "eng"
-    fra = "fra"
-    dan = "dan"
-    nld = "nld"
-    fin = "fin"
-    deu = "deu"
-    hun = "hun"
-    ita = "ita"
-    nor = "nor"
-    por = "por"
-    ron = "ron"
-    rus = "rus"
-    spa = "spa"
-    swe = "swe"
-    tur = "tur"
+    pol = "pol"
 
 
 class Document(BaseModel):

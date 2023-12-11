@@ -11,20 +11,7 @@ RUN apt-get update && \
         python3-pip \
         tesseract-ocr \
         tesseract-ocr-eng \
-        tesseract-ocr-fra \
-        tesseract-ocr-dan \
-        tesseract-ocr-nld \
-        tesseract-ocr-fin \
-        tesseract-ocr-deu \
-        tesseract-ocr-hun \
-        tesseract-ocr-ita \
-        tesseract-ocr-nor \
-        tesseract-ocr-por \
-        tesseract-ocr-ron \
-        tesseract-ocr-rus \
-        tesseract-ocr-spa \
-        tesseract-ocr-swe \
-        tesseract-ocr-tur \
+        tesseract-ocr-pol \
         zlib1g && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
